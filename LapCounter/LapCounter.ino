@@ -9,7 +9,7 @@
 //#include "Vocab_US_TI99.h"
 
 // for IR receiver
-#include <irmpSelectMain15Protocols.h> 
+#include <irmpSelectMain15Protocols.h>
 #include <irmp.hpp>
 #define IRMP_SUPPORT_NEC_PROTOCOL        1 
 
@@ -31,46 +31,34 @@ IRMP_DATA irmp_data;
 // init buttons
 // start/enter : pin 12
 // cancel/back : pin 13
-int pinStart = 12;
-int pinCancel = 13;
+int btnStart = 12;
+int btnCancel = 13;
+int buttonReleaseDelay = 500; // ms
 
 //status variables
-boolean mainMenu = true;
-boolean raceMenu = false;
-boolean fastestLapMenu = false;
-boolean raceMode = false;
-boolean raceLapSelectMode = false;
-boolean fastestLapSelectMode = false;
-boolean selectingLaps = false;
-boolean raceStarted = false;
-boolean fastestLapStarted = false;
-int totalRaceLaps = 3;
-int totalFastestLaps = 10;
+enum menuItems { MAIN, RACE, GOFAST, SELECTLAP, TESTCODE };
+int statut = MAIN;
+int menuPosition = -1;
+
+// race variables
+int numberLaps = 3;
+unsigned int startTime = 0;
+unsigned int endTime = 0;
+unsigned int lapTimes[20];
+unsigned int currentLap = 0;
+unsigned int bestGoFastScore = 0;
+int currentCarCode = 0;
 
 // players IR code
-int mrWhite = 247;
-int mrRed = 55;
+unsigned int mrWhite = 247;
+unsigned int mrRed = 55;
 
-// score best lap
-int playerLapRecord = 0;
-int lapRecord = 0;
-int currentPlayer=0;
-int currentBestLap=0;
-
-// lap data
-unsigned long currentTime = 0;
-unsigned long previousTime = 0;
-unsigned long lapTimes[20];
-unsigned int currentLap = 0;
-unsigned int fastest = 0;
-unsigned int overallFastest = 99999;
-unsigned int overallFastestPlayer = 0;
 
 void setup() 
 {
   // buttons
-  digitalWrite(pinStart, INPUT);
-  digitalWrite(pinCancel, INPUT);
+  digitalWrite(btnStart, INPUT);
+  digitalWrite(btnCancel, INPUT);
 
   // LCD
   lcd.init();
@@ -82,12 +70,14 @@ void setup()
   lcd.print("C.Jaspart 2023");
 
   // Voice 
-  //delay(2000);
-  //voice.say(sp2_DEVICE);
-  //voice.say(sp2_READY);
+  delay(2000);
+  voice.say(sp2_READY);
+
+  // init IR
+  irmp_init();
 
   // for serial debugging
-  Serial.begin(9600);
+  //Serial.begin(9600);
 
   // Init loop done
   lcd.clear();
@@ -95,343 +85,389 @@ void setup()
 
 void loop() 
 {
-  // display menu controller
-  if (mainMenu)
+  if (statut == MAIN)
   {
-    displayMainMenu();
+    displayMenu();
   }
-  else if (raceMenu)
+  else if (statut == RACE)
   {
-    displayRaceMenu();
+    startRace();
   }
-  else if (fastestLapMenu)
+  else if (statut == GOFAST)
   {
-    displayFastestLapMenu();
+    startGoFast();
   }
-  else if (selectingLaps)
+  else if (statut == SELECTLAP)
   {
-    selectLaps();
+    selectNumberLaps();
   }
-  else if (fastestLapStarted)
+  else if (statut == TESTCODE)
   {
-    readFastestLap();
-  }
-
-  // enter/select button controller
-  if (digitalRead(pinStart))
-  {
-    if (selectingLaps)
-    {
-      selectingLaps = false;
-    }
-    else if (mainMenu && raceMode)
-    {
-      mainMenu = false;
-      raceMenu = true;
-      displayRaceMenu();
-    }
-    else if (mainMenu && !raceMode)
-    {
-      mainMenu = false;
-      fastestLapMenu = true;
-      displayFastestLapMenu();
-    }
-    else if (raceMenu && raceLapSelectMode)
-    {
-        selectingLaps = true;
-        selectLaps();
-    }
-    else if (raceMenu && !raceLapSelectMode)
-    {
-        raceMenu=false;
-        startRace();
-    }
-    else if (fastestLapMenu && fastestLapSelectMode)
-    {
-        selectingLaps = true;
-        selectLaps();
-    }
-    else if (fastestLapMenu && !fastestLapSelectMode)
-    {
-        fastestLapMenu=false;
-        startRace();
-    }
-
-    delay(100);
+    testCode();
   }
 
-  // cancel/back button controller
-  if (digitalRead(pinCancel))
+  // gestion du bouton enter/start
+  if (digitalRead(btnStart))
   {
-    if (raceMenu && !selectingLaps)
+    //Serial.println("button start pushed");
+    if (statut == MAIN)
     {
-      raceMenu = false;
-      mainMenu = true;
+      statut = menuPosition;
     }
-    else if (fastestLapMenu && !selectingLaps)
-    {
-      fastestLapMenu = false;
-      mainMenu = true;
-    }
-    delay(100);
   }
 }
 
-void displayMainMenu()
+void displayMenu()
 {
-  lcd.setCursor(2,0);
-  lcd.print("Race          ");
-  lcd.setCursor(2,1);
-  lcd.print("Fastest lap   ");
-
-  int cursorValue = map(analogRead(A3),0,510,0,1);
-  if (cursorValue)
-  {
-    lcd.setCursor(0,0);
-    lcd.print(" ");    
-    lcd.setCursor(0,1);
-    lcd.print(">");
-    raceMode = false;
-  }
-  else
-  {
-    lcd.setCursor(0,1);
-    lcd.print(" ");    
-    lcd.setCursor(0,0);
-    lcd.print(">");
-    raceMode = true;
-  }
-}
-
-void displayRaceMenu()
-{
-  lcd.setCursor(2,0);
-  lcd.print("Total laps:");
-  lcd.setCursor(14,0);
-  lcd.print(totalRaceLaps);
-  lcd.setCursor(2,1);
-  lcd.print("Start race !");
-
-  if (!selectingLaps)
-  {
-    int cursorValue = map(analogRead(A3),0,510,0,1);
-    Serial.println(analogRead(A3));
-    if (cursorValue)
-    {
-      lcd.setCursor(0,0);
-      lcd.print(" ");    
-      lcd.setCursor(0,1);
-      lcd.print(">");
-      raceLapSelectMode = false;
-    }
-    else
-    {
-      lcd.setCursor(0,1);
-      lcd.print(" ");    
-      lcd.setCursor(0,0);
-      lcd.print(">");
-      raceLapSelectMode = true;
-    }
-  }
-}
-
-void displayFastestLapMenu()
-{
-  lcd.setCursor(2,0);
-  lcd.print("Total laps:");
-  lcd.setCursor(14,0);
-  lcd.print(totalFastestLaps);
-  lcd.setCursor(2,1);
-  lcd.print("Start laps !");
-
-  if (!selectingLaps)
-  {
-    int cursorValue = map(analogRead(A3),0,510,0,1);
-    Serial.println(analogRead(A3));
-    if (cursorValue)
-    {
-      lcd.setCursor(0,0);
-      lcd.print(" ");    
-      lcd.setCursor(0,1);
-      lcd.print(">");
-      fastestLapSelectMode = false;
-    }
-    else
-    {
-      lcd.setCursor(0,1);
-      lcd.print(" ");    
-      lcd.setCursor(0,0);
-      lcd.print(">");
-      fastestLapSelectMode = true;
-    }
-  }
-}
-
- void selectLaps()
- {
-  lcd.setCursor(14,0);
-  lcd.print("  ");
-  int lapsValue = map(analogRead(A3),0,1000,1,20);
-  lcd.setCursor(14,0);
-  lcd.print(lapsValue);
+  // selection du menu
+  int cursorValue = map(analogRead(A3),0,1024,1,5);
   
-  if (raceLapSelectMode)
-  {
-    totalRaceLaps = lapsValue;
-  }
-  else if (fastestLapSelectMode)
-  {
-    totalFastestLaps = lapsValue;
-  }
+  //Serial.println(cursorValue);
   
-  delay(200);
- }
+  // position the cursor
+  if (cursorValue != menuPosition)
+  {
+    // affichage du menu
+    lcd.setCursor(1,0);
+    lcd.print("Race     GoFast");
+    lcd.setCursor(1,1);
+    lcd.print("Laps     Test  ");
+    
+    switch(menuPosition)
+    {
+      case RACE:      lcd.setCursor(0,0);break;
+      case GOFAST:    lcd.setCursor(9,0);break;
+      case SELECTLAP: lcd.setCursor(0,1);break;
+      case TESTCODE:  lcd.setCursor(9,1);break;
+      default: break;
+    }
+      
+    lcd.print(" ");  
 
+    switch(cursorValue)
+    {
+      case RACE:      lcd.setCursor(0,0);break;
+      case GOFAST:    lcd.setCursor(9,0);break;
+      case SELECTLAP: lcd.setCursor(0,1);break;
+      case TESTCODE:  lcd.setCursor(9,1);break;
+      default: break;
+    }
+
+    lcd.print(">"); 
+
+    menuPosition = cursorValue;
+  }
+}
+
+// start race
 void startRace()
 {
-  startIntro();
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print(" Race mode");
 }
 
-
-void startFastestLap()
+// start go fast
+void startGoFast()
 {
-  resetLapTimes();
-  currentLap = 0;
-  currentPlayer = 0;
-  startIntro();
-  previousTime = millis();
-  delay(2000);
-  raceStarted = true;  
-}
-
- void startIntro()
- {
-  lcd.noBacklight();
+  clearLapTimes();
+  currentCarCode = -1;
   lcd.clear();
   lcd.setCursor(0,0);
-  lcd.print("Race starting");
-  lcd.setCursor(0,1);
-  lcd.print("in 5 seconds");
-  delay(2000);
-  voice.say(sp2_THREE);
-  delay(1000);
-  voice.say(sp2_TWO);
-  delay(1000);
-  voice.say(sp2_ONE);
-  delay(1000);
-  voice.say(sp2_GO);
-  
- }
+  lcd.print(" Go Fast:");
+  lcd.print(numberLaps);
+  lcd.print(" laps");
 
- void readFastestLap()
- {
-  if (currentLap < totalFastestLaps && irmp_get_data(&irmp_data)) 
-  { 
-    if (irmp_data.command == mrWhite || irmp_data.command == mrRed)
+  // countdown 10s before start
+  for(int t=5;t>=0;t--)
+  {
+    lcd.setCursor(0,1);
+    lcd.print(" Starts in ");
+    lcd.print(t);
+    lcd.print("s      ");
+
+    switch(t)
     {
-      // time detection
-      currentTime = millis(); 
+      case 5: voice.say(sp2_FIVE);break;
+      case 4: voice.say(sp2_FOUR);break;
+      case 3: voice.say(sp2_THREE);break;
+      case 2: voice.say(sp2_TWO);break;
+      case 1: voice.say(sp2_ONE);break;
+      case 0: voice.say(sp2_GO);
+              startTime = millis();
+              break;
+    }
+    delay(1000);
+  }
+
+  // display current lap
+  delay(2000); // be sure no detection from car at start position
+  irmp_init();
+  currentLap = 1;
+  displayLap(currentLap);
+  boolean cancelRace = false;
+  
+  // race loop
+  while((currentLap < (numberLaps+1)) && !cancelRace)
+  {
+    // car detected
+    if (irmp_get_data(&irmp_data)) 
+    { 
+      endTime = millis();
+      unsigned int carCode = irmp_data.command;
+      if ( carCode == mrWhite || carCode == mrRed)
+      {
+          sayLap(currentLap);
+          lapTimes[currentLap-1] = endTime - startTime;
+          startTime = endTime;
+          currentLap++;
+            
+          // be sure car is long gone to avoid double detection 
+          if (currentLap < numberLaps+1)
+          {
+            displayLap(currentLap);
+            delay(2000);
+            irmp_init();
+          }
+      }
+    }
       
-      // player detection
-      if (currentLap == 0 && irmp_data.command == mrWhite)
-      {
-        currentPlayer = 1;
-      }
-      else if (currentLap == 0 && irmp_data.command == mrRed)
-      {
-        currentPlayer = 2;
-      }
-       
-     // only process if the car wasn't detected twice within a 4s time frame
-     if ((currentTime - previousTime) > 4000)
-     {
-       lapTimes[currentLap] = currentTime - previousTime;
-       previousTime = currentTime;
-       if (currentLap > 0 && isNewLapRecord(currentLap))
-       {
-         newLapRecord();
-         fastest = lapTimes[currentLap];
-       }
-  
-       currentLap++;
-  
-       if (currentLap >= totalFastestLaps)
-       {
-        endFastestLap();
-       }
-     }
-    } 
-  }
- }
-
-
-void resetLapTimes()
-{
-  for(int i=0;i<20;i++)
-  {
-    lapTimes[i] = 0;
-  }
-}
-
-boolean isNewLapRecord(int lapNumber)
-{
-  int i=0;
-  boolean isFastest = true;
-  for(i=0;i<lapNumber;i++)
-  {
-    if (lapTimes[lapNumber] > lapTimes[i])
+    // cancel the race
+    if (digitalRead(btnCancel))
     {
-      isFastest = false;
+      lcd.setCursor(0,1);
+      lcd.print(" Race canceled    ");
+      voice.say(sp2_CANCEL);
+      cancelRace = true;
+      menuPosition = -1;
+      statut = MAIN;
+      delay(1500);
     }
   }
 
-  return isFastest;
+  // race ended, display result
+  if (!cancelRace)
+  {
+    voice.say(sp4_WAY);
+    voice.say(sp2_OVER);
+    lcd.setCursor(0,0);
+    lcd.print(" Best: ");
+    unsigned int result = getBestLapTime();
+    lcd.print((float)result/1000);
+    lcd.print("s     ");
+
+    // New go fast record or not ?
+    lcd.setCursor(0,1);
+    if (isAGoFastRecord(result))
+    {
+      lcd.print("** NEW RECORD **   ");
+    }
+    else
+    {
+      lcd.print(" To beat: ");
+      lcd.print((float)bestGoFastScore/1000);
+      lcd.print("s     ");
+    }
+    
+    boolean quitGoFast = false;
+    while(!quitGoFast)
+    {
+      if (digitalRead(btnStart) || digitalRead(btnCancel))
+      {
+        quitGoFast = true;
+        menuPosition = -1;
+        statut = MAIN;
+        delay(buttonReleaseDelay);
+      }
+    }
+  }
+
 }
 
-boolean newLapRecord()
+
+boolean isAGoFastRecord(unsigned int res)
 {
-  voice.say(sp4_BRAVO);
+  boolean recordBroken = false;
+  
+  if (bestGoFastScore == 0)
+  {
+    bestGoFastScore = res;
+    recordBroken = false;
+  }
+  else if (res < bestGoFastScore)
+  {
+    recordBroken = true;
+  }
+
+  return recordBroken;
 }
 
-void endFastestLap()
+
+unsigned int getBestLapTime()
 {
-  // status ended
-  fastestLapStarted = false;
+  int best=lapTimes[0];
+
+  if (numberLaps > 1)
+  {
+    for(int i=1;i<numberLaps;i++)
+    {
+      if (best > lapTimes[i])
+      {
+        best = lapTimes[i];
+      }
+    }
+  }
+
+  return best;
+}
+
+boolean isAGoFastRecord()
+{
   
-  // todo end the race
-  voice.say(sp3_OVER);
+}
 
-  // check for overall new lap record
-  if (fastest < overallFastest)
+void sayLap(int lap)
+{
+  //voice.say(sp5_FLAPS);
+  switch(lap)
   {
-    overallFastest = fastest;
-    overallFastestPlayer = currentPlayer;
+      case 20: voice.say(sp3_TWENTY);break;
+      case 19: voice.say(sp3_NINETEEN);break;
+      case 18: voice.say(sp3_EIGHTEEN);break;
+      case 17: voice.say(sp3_SEVENTEEN);break;
+      case 16: voice.say(sp3_SIXTEEN);break;
+      case 15: voice.say(sp3_FIFTEEN);break;
+      case 14: voice.say(sp3_FOURTEEN);break;
+      case 13: voice.say(sp3_THIRTEEN);break;
+      case 12: voice.say(sp3_TWELVE);break;
+      case 11: voice.say(sp3_ELEVEN);break;
+      case 10: voice.say(sp3_TEN);break;
+      case 9: voice.say(sp3_NINE);break;
+      case 8: voice.say(sp3_EIGHT);break;
+      case 7: voice.say(sp3_SEVEN);break;
+      case 6: voice.say(sp3_SIX);break;
+      case 5: voice.say(sp3_FIVE);break;
+      case 4: voice.say(sp3_FOUR);break;
+      case 3: voice.say(sp3_THREE);break;
+      case 2: voice.say(sp3_TWO);break;
+      case 1: voice.say(sp3_ONE);break;
   }
+}
 
-  // Display player result
+void displayLap(int lapNumber)
+{
+  lcd.setCursor(0,1);
+  lcd.print(" Lap ");
+  lcd.print(lapNumber);
+  lcd.print("/");
+  lcd.print(numberLaps);
+  lcd.print("     ");
+}
+
+void clearLapTimes()
+{
+  for (int i=0;i<20;i++)
+    lapTimes[i] = 0;
+}
+
+// select number total laps
+void selectNumberLaps()
+{
+  lcd.clear();
   lcd.setCursor(0,0);
-  if (currentPlayer == 1)
+  lcd.print(" Number laps: ");
+  lcd.print(numberLaps);
+
+  boolean selectingValue = true;
+  int selectedLaps = 0;
+  int previousValue = -1;
+
+  // avoid button enter pushed twice
+  delay(buttonReleaseDelay);
+
+  while(selectingValue)
   {
-    lcd.print("Mr W: ");
+    // display the new selected value
+    selectedLaps = map(analogRead(A3),0,1000,1,20);
+    if (previousValue != selectedLaps)
+    {
+      lcd.setCursor(1,1);
+      lcd.print("New value: ");
+      lcd.print(selectedLaps);
+      if (selectedLaps < 10)
+        lcd.print(" ");
+        
+      previousValue = selectedLaps;
+    }
+
+    if (digitalRead(btnStart))
+    {
+      numberLaps = selectedLaps;
+      selectingValue = false;
+      menuPosition = -1;
+      statut = MAIN;
+      delay(buttonReleaseDelay);
+    }
+
+    if (digitalRead(btnCancel))
+    {
+      selectingValue = false;
+      menuPosition = -1;
+      statut = MAIN;
+      delay(buttonReleaseDelay);
+    }
   }
-  else
+}
+
+// Display the code sent from the transponder
+void testCode()
+{
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print(" Code testing");
+
+  boolean testing = true;
+
+  // avoid button enter pushed twice
+  delay(buttonReleaseDelay);
+
+  while (testing)
   {
-    lcd.print("Mr R: ");
+    
+    if (irmp_get_data(&irmp_data)) 
+    { 
+      int receivedCode = irmp_data.command;
+      //Serial.println(receivedCode);
+      
+      lcd.setCursor(1,1);
+      lcd.print("                ");
+      lcd.setCursor(1,1);
+      lcd.print(receivedCode);
+      
+      if ( receivedCode == mrWhite)
+      {
+        lcd.print(" : MrWhite");
+      }
+      else if (receivedCode == mrRed)
+      {
+        lcd.print(" : MrRed");
+      }
+
+      delay(2000);
+    }
+    else
+    {
+      lcd.setCursor(1,1);
+      lcd.print("Waiting ...   ");
+    }
+
+    if (digitalRead(btnStart) || digitalRead(btnCancel))
+    {
+      testing = false;
+      menuPosition = -1;
+      statut = MAIN;
+      delay(buttonReleaseDelay);
+    }
   }
   
-  lcd.setCursor(0,6);
-  lcd.print(fastest);
-
-  // display overall fastest
-  lcd.setCursor(0,0);
-  if (overallFastestPlayer == 1)
-  {
-    lcd.print("Mr W: ");
-  }
-  else
-  {
-    lcd.print("Mr R: ");
-  }
-  lcd.setCursor(0,6);
-  lcd.print(overallFastest);
 }
