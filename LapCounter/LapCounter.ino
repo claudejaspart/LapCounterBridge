@@ -270,11 +270,6 @@ void startRace()
     
 }
 
-void displayPlayersLaps()
-{
-  
-}
-
 // start go fast
 void startGoFast()
 {
