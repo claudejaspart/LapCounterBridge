@@ -53,7 +53,6 @@ int currentCarCode = 0;
 unsigned int mrWhite = 247;
 unsigned int mrRed = 55;
 
-
 void setup() 
 {
   // buttons
@@ -141,7 +140,7 @@ void displayMenu()
       case TESTCODE:  lcd.setCursor(9,1);break;
       default: break;
     }
-      
+  
     lcd.print(" ");  
 
     switch(cursorValue)
@@ -154,7 +153,6 @@ void displayMenu()
     }
 
     lcd.print(">"); 
-
     menuPosition = cursorValue;
   }
 }
@@ -281,9 +279,7 @@ void startGoFast()
       }
     }
   }
-
 }
-
 
 boolean isAGoFastRecord(unsigned int res)
 {
@@ -302,7 +298,6 @@ boolean isAGoFastRecord(unsigned int res)
   return recordBroken;
 }
 
-
 unsigned int getBestLapTime()
 {
   int best=lapTimes[0];
@@ -319,11 +314,6 @@ unsigned int getBestLapTime()
   }
 
   return best;
-}
-
-boolean isAGoFastRecord()
-{
-  
 }
 
 void sayLap(int lap)
@@ -433,7 +423,6 @@ void testCode()
 
   while (testing)
   {
-    
     if (irmp_get_data(&irmp_data)) 
     { 
       int receivedCode = irmp_data.command;
@@ -469,5 +458,4 @@ void testCode()
       delay(buttonReleaseDelay);
     }
   }
-  
 }
