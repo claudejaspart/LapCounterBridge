@@ -45,6 +45,8 @@ int numberLaps = 3;
 unsigned int startTime = 0;
 unsigned int endTime = 0;
 unsigned int lapTimes[20];
+unsigned int mrWhiteNumberLaps=0;
+unsigned int mrRedNumberLaps=0;
 unsigned int currentLap = 0;
 unsigned int bestGoFastScore = 0;
 int currentCarCode = 0;
@@ -160,16 +162,123 @@ void displayMenu()
 // start race
 void startRace()
 {
+    // init players number laps
+    mrWhiteNumberLaps=0;
+    mrRedNumberLaps=0;
+    
     lcd.clear();
     lcd.setCursor(0,0);
-    lcd.print(" Race mode");
+    lcd.print(" Race: ");
+    lcd.print(numberLaps);
+    lcd.print(" laps");
+
+    // countdown 10s before start
+    for(int t=10;t>=0;t--)
+    {
+      lcd.setCursor(0,1);
+      lcd.print(" Starts in ");
+      lcd.print(t);
+      lcd.print("s      ");
+  
+      switch(t)
+      {
+        case 5: voice.say(sp2_FIVE);break;
+        case 4: voice.say(sp2_FOUR);break;
+        case 3: voice.say(sp2_THREE);break;
+        case 2: voice.say(sp2_TWO);break;
+        case 1: voice.say(sp2_ONE);break;
+        case 0: voice.say(sp2_GO);break;
+      }
+      delay(1000);
+    }
+
+    lcd.setCursor(0,1);
+    lcd.print(" Race started !    ");
+    delay(1500); // be sure no detection from car at start position
+    irmp_init();
+    boolean cancelRace = false;
+  
+    // race loop
+    while( mrWhiteNumberLaps < numberLaps && mrRedNumberLaps < numberLaps && !cancelRace)
+    {
+        if (irmp_get_data(&irmp_data)) 
+        { 
+          unsigned int carCode = irmp_data.command;
+          if ( carCode == mrWhite)
+          {
+            mrWhiteNumberLaps++;
+          }
+          else if ( carCode == mrRed)
+          {
+            mrRedNumberLaps++;
+          }
+
+          lcd.setCursor(0,1);
+          lcd.print(" White:");
+          lcd.print(mrWhiteNumberLaps);
+          lcd.print(" Red:");
+          lcd.print(mrRedNumberLaps);
+          lcd.print("      ");
+        }
+       
+        // cancel the race
+        if (digitalRead(btnCancel))
+        {
+          lcd.setCursor(0,1);
+          lcd.print(" Race canceled    ");
+          voice.say(sp2_CANCEL);
+          cancelRace = true;
+          menuPosition = -1;
+          statut = MAIN;
+          delay(1500);
+        }
+
+       delay(200);
+    }
+
+    // race ended, display result
+    if (!cancelRace)
+    {   
+       
+        lcd.setCursor(0,1);
+        if (mrWhiteNumberLaps == numberLaps)
+        { 
+          lcd.print(" MrWhite wins!    ");
+          voice.say(sp5_INNER);
+          voice.say(sp3_WHITE);
+        }
+        else
+        {
+          lcd.print(" MrRed wins!     ");
+          voice.say(sp5_INNER);
+          voice.say(sp3_RED);
+        }
+        
+    }
+
+    boolean quitRace = false;
+    while(!quitRace)
+    {
+      if (digitalRead(btnStart) || digitalRead(btnCancel))
+      {
+        quitRace = true;
+        menuPosition = -1;
+        statut = MAIN;
+        delay(buttonReleaseDelay);
+      }
+    }
+    
+}
+
+void displayPlayersLaps()
+{
+  
 }
 
 // start go fast
 void startGoFast()
 {
   clearLapTimes();
-  currentCarCode = -1;
   lcd.clear();
   lcd.setCursor(0,0);
   lcd.print(" Go Fast:");
@@ -177,7 +286,7 @@ void startGoFast()
   lcd.print(" laps");
 
   // countdown 10s before start
-  for(int t=5;t>=0;t--)
+  for(int t=10;t>=0;t--)
   {
     lcd.setCursor(0,1);
     lcd.print(" Starts in ");
@@ -199,7 +308,7 @@ void startGoFast()
   }
 
   // display current lap
-  delay(2000); // be sure no detection from car at start position
+  delay(1500); // be sure no detection from car at start position
   irmp_init();
   currentLap = 1;
   displayLap(currentLap);
@@ -213,7 +322,7 @@ void startGoFast()
     { 
       endTime = millis();
       unsigned int carCode = irmp_data.command;
-      if ( carCode == mrWhite || carCode == mrRed)
+      if ( carCode == mrWhite)
       {
           sayLap(currentLap);
           lapTimes[currentLap-1] = endTime - startTime;
